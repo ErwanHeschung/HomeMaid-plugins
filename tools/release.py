@@ -43,7 +43,8 @@ for listing in sorted(ROOT.glob('plugins/*/registry.json')):
     if (entry['id'], version) not in listed:
         pending.append((entry, crate, version, tag))
 if PENDING:
-    print('\n'.join(tag for *_, tag in pending))
+    for *_, tag in pending:
+        print(tag)
     sys.exit()
 
 api = sdk_api() if pending else None
