@@ -28,16 +28,19 @@ plugin does, and its devices appear in the app.
 
 ## Publish
 
-1. Make a signing key once, and keep it safe: it signs every version, and the hubs that
-   installed your plugin refuse updates signed by another key.
+1. Make a signing key once, and keep a copy safe: every version is signed with it, and the hubs
+   that installed your plugin refuse updates signed by another key.
    ```sh
-   minisign -G
+   minisign -G -W -s my-plugin.key -p minisign.pub
+   gh secret set MINISIGN_KEY < my-plugin.key
    ```
-2. Sign the build and attach both files to a GitHub release:
+2. Describe your plugin in `registry.json`: its name and description in the app, the
+   permissions of its manifest, and the settings the app asks at install (`key`, `label`,
+   `secret`, `required`; secrets are read with `secret()`, the others in `init`).
+3. Release: set the version in `Cargo.toml`, then
    ```sh
-   minisign -Sm target/wasm32-wasip2/release/{{crate_name}}.wasm
-   gh release create v0.1.0 target/wasm32-wasip2/release/{{crate_name}}.wasm*
+   git tag v0.1.0 && git push --tags
    ```
-3. Open a PR on [HomeMaid-plugins](https://github.com/ErwanHeschung/HomeMaid-plugins) adding your
-   entry to `index.json` (format in its README): `sha256sum` of the `.wasm`, the content of the
-   `.minisig`, your public key (second line of `minisign.pub`).
+   The release workflow builds, signs and publishes the `.wasm` with `entry.json`.
+4. Open a PR on [HomeMaid-plugins](https://github.com/ErwanHeschung/HomeMaid-plugins) adding
+   `entry.json` to `index.json` (a new version: only its `versions` item).

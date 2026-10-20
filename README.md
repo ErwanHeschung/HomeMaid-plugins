@@ -51,7 +51,11 @@ Open a PR adding your plugin (or a new version) to `index.json`:
 - `permissions` must match your manifest; the user accepts them at install and the hub refuses
   a plugin asking for more.
 
-CI downloads each `.wasm`, checks its `sha256` and its signature with `key`.
+CI downloads each `.wasm`, checks its `sha256` and its signature with `key`. The template's
+release workflow makes the `.wasm`, its signature and this entry (`entry.json`) on a tag.
+
+HomeMaid's official plugins are released and signed by HomeMaid's pipeline; `sync.py` (hourly)
+proposes their new versions here as a PR, checked the same way.
 
 ### Trust
 

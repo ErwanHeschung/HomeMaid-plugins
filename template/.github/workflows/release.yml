@@ -1,0 +1,56 @@
+name: Release
+
+# Push a tag `v<version>` (the version of Cargo.toml): the plugin is built, signed with your key
+# (repository secret MINISIGN_KEY: the content of a key made with `minisign -G -W`) and released
+# with entry.json, the entry to add to HomeMaid-plugins' index.json in a PR.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends minisign
+      - run: cargo build --release
+      - name: Sign and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SECRET_KEY: ${{ secrets.MINISIGN_KEY }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          umask 077
+          printf '%s\n' "$SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+          wasm=$(ls target/wasm32-wasip2/release/*.wasm)
+          minisign -S -s "$RUNNER_TEMP/minisign.key" -m "$wasm" -t "$TAG" < /dev/null
+          minisign -R -s "$RUNNER_TEMP/minisign.key" -p minisign.pub
+          python3 - "$wasm" "$TAG" <<'PY'
+          import hashlib, json, os, re, sys
+          wasm, tag = sys.argv[1:]
+          version = re.search(r'^version = "(.+)"', open('Cargo.toml').read(), re.M).group(1)
+          if tag != f'v{version}':
+              sys.exit(f'tag {tag} is not v{version}, the version in Cargo.toml')
+          meta = json.loads(os.popen('cargo metadata --format-version 1').read())
+          sdk = next(p['manifest_path'] for p in meta['packages'] if p['name'] == 'homemaid-plugin')
+          sdk = open(os.path.join(os.path.dirname(sdk), 'src/lib.rs')).read()
+          entry = json.load(open('registry.json'))
+          entry['key'] = open('minisign.pub').read().strip().splitlines()[-1]
+          entry['versions'] = [{
+              'version': version,
+              'api': re.search(r'API_VERSION: &str = "(\d+\.\d+)', sdk).group(1),
+              'permissions': entry.pop('permissions'),
+              'url': f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{os.path.basename(wasm)}",
+              'sha256': hashlib.sha256(open(wasm, 'rb').read()).hexdigest(),
+              'signature': open(wasm + '.minisig').read(),
+          }]
+          json.dump(entry, open('entry.json', 'w'), indent=2)
+          PY
+          gh release create "$TAG" "$wasm" "$wasm.minisig" entry.json --title "$TAG" --notes "Add entry.json to HomeMaid-plugins' index.json in a PR."

@@ -1,5 +1,7 @@
 [template]
 cargo_generate_version = ">=0.21"
+# Copied as is: GitHub's ${{ }} expressions are not Liquid placeholders.
+exclude = [".github/workflows/release.yml"]
 
 [placeholders.plugin_id]
 type = "string"

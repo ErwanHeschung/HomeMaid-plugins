@@ -1,0 +1,8 @@
+{
+  "id": "{{plugin_id}}",
+  "name": "{{project-name}}",
+  "description": "What it brings to the home, in one line.",
+  "repo": "https://github.com/<you>/{{project-name}}",
+  "permissions": ["local-network"],
+  "settings": []
+}
