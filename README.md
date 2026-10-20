@@ -1,8 +1,19 @@
 # HomeMaid-plugins
 
 The registry of [HomeMaid](https://github.com/ErwanHeschung/HomeMaid) plugins: `index.json`,
-read by the hub when you browse or install plugins from the app (Settings > Plugins). Nothing
-else is read from here: the hub never needs the Internet to run.
+read by the hub when you browse or install plugins from the app (Settings > Plugins), and the
+official plugins themselves (`plugins/`). The hub never needs the Internet to run.
+
+## Official plugins
+
+`plugins/<id>`: a Cargo workspace (`cargo test`, `cargo build --release --target wasm32-wasip2`).
+Each has a `registry.json`, its listing (name, description, permissions, the settings the app
+asks). They pin the SDK to a HomeMaid tag (`plugin-api-v1.2.0`); their tests run them on a real
+hub at the same tag.
+
+To release one, bump its version in `Cargo.toml` and merge: the release workflow waits for an
+approval, then builds, signs (CI key, `minisign.pub`), releases `<id>-v<version>` and adds it
+to `index.json`.
 
 ## Write a plugin
 
@@ -53,9 +64,6 @@ Open a PR adding your plugin (or a new version) to `index.json`:
 
 CI downloads each `.wasm`, checks its `sha256` and its signature with `key`. The template's
 release workflow makes the `.wasm`, its signature and this entry (`entry.json`) on a tag.
-
-HomeMaid's official plugins are released and signed by HomeMaid's pipeline; `sync.py` (hourly)
-proposes their new versions here as a PR, checked the same way.
 
 ### Trust
 

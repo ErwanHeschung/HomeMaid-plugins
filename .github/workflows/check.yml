@@ -5,13 +5,11 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
-  # The template is built against HomeMaid's main: catches SDK changes that break it.
-  schedule:
-    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 jobs:
   index:
+    name: index.json
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +29,23 @@ jobs:
           [ "$KEY_CHANGE" = true ] && args+=(--allow-key-change)
           python3 check.py index.json "${args[@]}"
 
+  plugins:
+    name: Plugins · clippy and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # The tests build the plugins to wasm themselves.
+          targets: wasm32-wasip2
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --target wasm32-wasip2 -- -D warnings
+      - run: cargo test
+
   template:
+    name: Template
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

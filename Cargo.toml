@@ -1,0 +1,5 @@
+[workspace]
+members = ["plugins/*"]
+# Rendered by cargo generate first: built on its own by CI.
+exclude = ["template"]
+resolver = "3"

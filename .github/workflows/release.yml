@@ -1,0 +1,55 @@
+name: Release
+
+# Each plugin (plugins/<dir>/registry.json) whose Cargo.toml version is not in index.json yet is
+# built, signed with the CI key (secret MINISIGN_KEY, public key minisign.pub), released as
+# <id>-v<version>, and added to index.json. Signing waits for an approval: the `release`
+# environment.
+
+on:
+  push:
+    branches: [main]
+    paths: ["plugins/**", "tools/release.py"]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+
+permissions:
+  contents: write
+
+jobs:
+  pending:
+    name: Versions to release
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.list.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          tags=$(python3 tools/release.py --pending | tr '\n' ' ')
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "To release: ${tags:-nothing}"
+
+  release:
+    name: Build, sign and release
+    needs: pending
+    if: needs.pending.outputs.tags != ''
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends minisign
+      - name: Release ${{ needs.pending.outputs.tags }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SECRET_KEY: ${{ secrets.MINISIGN_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          MINISIGN_KEY="$RUNNER_TEMP/minisign.key" python3 tools/release.py

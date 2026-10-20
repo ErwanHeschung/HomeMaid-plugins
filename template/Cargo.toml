@@ -7,8 +7,8 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-# The SDK (plugin-api 1.x). Pin a `rev` once your plugin works: `main` moves.
-homemaid-plugin = { git = "https://github.com/ErwanHeschung/HomeMaid", branch = "main" }
+# The SDK, at the plugin-api your plugin is built for: bump the tag for a newer one.
+homemaid-plugin = { git = "https://github.com/ErwanHeschung/HomeMaid", tag = "plugin-api-v1.2.0" }
 
 [profile.release]
 opt-level = "s"

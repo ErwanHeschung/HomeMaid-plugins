@@ -1,0 +1,3 @@
+# The SDK and the hub come from HomeMaid's git repo: the system git fetches it much faster.
+[net]
+git-fetch-with-cli = true
