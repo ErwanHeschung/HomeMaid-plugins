@@ -1,4 +1,4 @@
-# HomeMaid plugins
+# HomeMaid-plugins
 
 The registry of [HomeMaid](https://github.com/ErwanHeschung/HomeMaid) plugins: `index.json`,
 read by the hub when you browse or install plugins from the app (Settings > Plugins). Nothing
@@ -8,7 +8,7 @@ else is read from here: the hub never needs the Internet to run.
 
 ```sh
 cargo install cargo-generate
-cargo generate --git https://github.com/ErwanHeschung/homemaid-plugins --subfolder template
+cargo generate --git https://github.com/ErwanHeschung/HomeMaid-plugins --subfolder template
 ```
 
 See the generated README: build, try it on your hub, publish.

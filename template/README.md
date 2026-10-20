@@ -38,6 +38,6 @@ plugin does, and its devices appear in the app.
    minisign -Sm target/wasm32-wasip2/release/{{crate_name}}.wasm
    gh release create v0.1.0 target/wasm32-wasip2/release/{{crate_name}}.wasm*
    ```
-3. Open a PR on [homemaid-plugins](https://github.com/ErwanHeschung/homemaid-plugins) adding your
+3. Open a PR on [HomeMaid-plugins](https://github.com/ErwanHeschung/HomeMaid-plugins) adding your
    entry to `index.json` (format in its README): `sha256sum` of the `.wasm`, the content of the
    `.minisig`, your public key (second line of `minisign.pub`).
