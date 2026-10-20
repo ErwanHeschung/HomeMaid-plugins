@@ -1,0 +1,6 @@
+[build]
+target = "wasm32-wasip2"
+
+# The SDK comes from HomeMaid's git repo: the system git fetches it much faster than cargo's own.
+[net]
+git-fetch-with-cli = true

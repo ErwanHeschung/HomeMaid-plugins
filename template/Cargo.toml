@@ -1,0 +1,16 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The SDK (plugin-api 1.x). Pin a `rev` once your plugin works: `main` moves.
+homemaid-plugin = { git = "https://github.com/ErwanHeschung/HomeMaid", branch = "main" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

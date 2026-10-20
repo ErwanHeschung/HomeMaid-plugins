@@ -1,0 +1,7 @@
+[template]
+cargo_generate_version = ">=0.21"
+
+[placeholders.plugin_id]
+type = "string"
+prompt = "Plugin id (lowercase, dashes: the id in homemaid.toml and in the registry)"
+regex = "^[a-z0-9][a-z0-9-]{0,40}$"

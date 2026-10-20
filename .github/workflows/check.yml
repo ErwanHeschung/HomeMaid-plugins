@@ -1,0 +1,48 @@
+name: Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main]
+  # The template is built against HomeMaid's main: catches SDK changes that break it.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends minisign
+      - name: Check index.json
+        env:
+          BASE: ${{ github.base_ref }}
+          KEY_CHANGE: ${{ contains(github.event.pull_request.labels.*.name, 'key-change') }}
+        run: |
+          args=()
+          if [ -n "$BASE" ]; then
+            git show "origin/$BASE:index.json" > base.json
+            args+=(--base base.json)
+          fi
+          [ "$KEY_CHANGE" = true ] && args+=(--allow-key-change)
+          python3 check.py index.json "${args[@]}"
+
+  template:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      - name: Build the template as cargo generate would render it
+        run: |
+          cp -r template /tmp/demo-plugin
+          cd /tmp/demo-plugin
+          rm cargo-generate.toml
+          sed -i 's/{{project-name}}/demo-plugin/g; s/{{plugin_id}}/demo/g' Cargo.toml src/lib.rs
+          cargo build --release
+          ls -l target/wasm32-wasip2/release/demo_plugin.wasm
