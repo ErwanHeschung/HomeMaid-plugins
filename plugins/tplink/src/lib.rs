@@ -1,7 +1,8 @@
 //! TP-Link Tapo P300 power strip, local control over KLAP v2: one `on_off` entity per outlet.
 //!
-//! Settings: `hosts` = comma-separated IPs (`ip` or `ip:port`). Secrets: `username`, `password`
-//! (TP-Link account). Requires "Third-Party Compatibility" in the Tapo app (Me > Third-Party
+//! Each strip is a device the user adds from the app (plugin-api 1.3): `host` (`ip` or
+//! `ip:port`), and the TP-Link account's `username` and `password` (secrets). The plugin itself
+//! has no settings. Requires "Third-Party Compatibility" in the Tapo app (Me > Third-Party
 //! Services), otherwise recent firmwares speak TPAP, which is not supported.
 //!
 //! Schedules (plugin-api 1.2): the outlets' `on_off` schedules handed over by the core become
@@ -22,14 +23,13 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use homemaid_plugin::{
-    ActionDecl, Actions, CapKind, http, CapMeta, CapValue, DiscoveredEntity, LOCAL_NETWORK, LogLevel, Manifest, Plugin,
-    Schedule, Schedules, TimeOfDay, kv_get, kv_set, log, report_state, secret, set_available,
+    ActionDecl, Actions, CapKind, http, CapMeta, CapValue, Devices, DiscoveredEntity, LOCAL_NETWORK, LogLevel, Manifest,
+    Plugin, Schedule, Schedules, TimeOfDay, kv_get, kv_set, log, report_state, set_available,
 };
 use serde_json::{Value, json};
 
-const AUTH_HINT: &str = "credentials refused by the device: check `username`/`password` of [tplink] in secrets.toml \
-    (TP-Link account), and enable Third-Party Compatibility in the Tapo app (Me > Third-Party Services); \
-    the newer TPAP protocol is not supported";
+const AUTH_HINT: &str = "the strip refused the login: check the TP-Link account's e-mail and password, and turn on \
+    Third-Party Compatibility in the Tapo app (Me > Third-Party Services); the newer TPAP protocol is not supported";
 const BINARY: (&str, &str) = ("Content-Type", "application/octet-stream");
 /// Sessions are renewed this long before the device expires them, like python-kasa.
 const SESSION_MARGIN: Duration = Duration::from_secs(20 * 60);
@@ -49,8 +49,13 @@ struct Live {
     expires: Instant,
 }
 
+/// A strip the user added.
 struct Host {
+    /// The id the core gave it.
+    id: String,
     addr: SocketAddr,
+    /// From its TP-Link login.
+    auth: [u8; 32],
     session: Option<Live>,
     /// `device_id` of each outlet, as discovered.
     outlets: Vec<String>,
@@ -66,7 +71,6 @@ struct Outlet {
 }
 
 struct State {
-    auth: [u8; 32],
     terminal_uuid: String,
     hosts: Vec<Host>,
     fast_until: Instant,
@@ -80,21 +84,21 @@ fn with_state<R>(f: impl FnOnce(&mut State) -> Result<R, String>) -> Result<R, S
 
 impl Host {
     /// Sends a SMART request and returns its `result`.
-    fn call(&mut self, auth: &[u8; 32], terminal_uuid: &str, method: &str, params: Option<Value>) -> Result<Value, String> {
+    fn call(&mut self, terminal_uuid: &str, method: &str, params: Option<Value>) -> Result<Value, String> {
         // A stale session is the only failure a new handshake can fix.
         let had_session = self.session.is_some();
-        match self.try_call(auth, terminal_uuid, method, params.clone()) {
+        match self.try_call(terminal_uuid, method, params.clone()) {
             Err(_) if had_session => {
                 self.session = None;
-                self.try_call(auth, terminal_uuid, method, params)
+                self.try_call(terminal_uuid, method, params)
             }
             result => result,
         }
     }
 
-    fn try_call(&mut self, auth: &[u8; 32], terminal_uuid: &str, method: &str, params: Option<Value>) -> Result<Value, String> {
+    fn try_call(&mut self, terminal_uuid: &str, method: &str, params: Option<Value>) -> Result<Value, String> {
         if !self.session.as_ref().is_some_and(|live| live.expires > Instant::now()) {
-            self.session = Some(handshake(self.addr, auth)?);
+            self.session = Some(handshake(self.addr, &self.auth)?);
         }
         let live = self.session.as_mut().expect("session just established");
 
@@ -113,29 +117,29 @@ impl Host {
         Ok(reply["result"].take())
     }
 
-    fn outlets(&mut self, auth: &[u8; 32], terminal_uuid: &str) -> Result<Vec<Outlet>, String> {
+    fn outlets(&mut self, terminal_uuid: &str) -> Result<Vec<Outlet>, String> {
         // ponytail: first page only (10 children), a P300 has 3.
-        let result = self.call(auth, terminal_uuid, "get_child_device_list", None)?;
+        let result = self.call(terminal_uuid, "get_child_device_list", None)?;
         Ok(parse_outlets(&result))
     }
 
     /// A request to one outlet, through the strip.
-    fn child(&mut self, auth: &[u8; 32], terminal_uuid: &str, outlet: &str, method: &str, params: Option<Value>) -> Result<Value, String> {
+    fn child(&mut self, terminal_uuid: &str, outlet: &str, method: &str, params: Option<Value>) -> Result<Value, String> {
         let mut request = json!({ "method": method });
         if let Some(params) = params {
             request["params"] = params;
         }
-        let mut result = self.call(auth, terminal_uuid, "control_child", Some(json!({ "device_id": outlet, "requestData": request })))?;
+        let mut result = self.call(terminal_uuid, "control_child", Some(json!({ "device_id": outlet, "requestData": request })))?;
         let mut response = result["responseData"].take();
         check(&response, method)?;
         Ok(response["result"].take())
     }
 
     /// The ids of an outlet's schedule rules, every page.
-    fn rule_ids(&mut self, auth: &[u8; 32], terminal_uuid: &str, outlet: &str) -> Result<Vec<String>, String> {
+    fn rule_ids(&mut self, terminal_uuid: &str, outlet: &str) -> Result<Vec<String>, String> {
         let mut ids = vec![];
         loop {
-            let page = self.child(auth, terminal_uuid, outlet, "get_schedule_rules", Some(json!({ "start_index": ids.len() })))?;
+            let page = self.child(terminal_uuid, outlet, "get_schedule_rules", Some(json!({ "start_index": ids.len() })))?;
             let rules = page["rule_list"].as_array().cloned().unwrap_or_default();
             ids.extend(rules.iter().filter_map(|r| r["id"].as_str().map(String::from)));
             if rules.is_empty() || ids.len() as u64 >= page["sum"].as_u64().unwrap_or(0) {
@@ -145,12 +149,12 @@ impl Host {
     }
 
     /// Puts an outlet's wished rules on the strip, in place of the ones this plugin added before.
-    fn sync_schedules(&mut self, auth: &[u8; 32], terminal_uuid: &str, outlet: &str) -> Result<(), String> {
+    fn sync_schedules(&mut self, terminal_uuid: &str, outlet: &str) -> Result<(), String> {
         let mut entry = schedules_entry(outlet);
         if entry["synced"] == true {
             return Ok(());
         }
-        let existing = self.rule_ids(auth, terminal_uuid, outlet)?;
+        let existing = self.rule_ids(terminal_uuid, outlet)?;
         let ours: Vec<Value> = entry["ids"]
             .as_array()
             .into_iter()
@@ -159,18 +163,18 @@ impl Host {
             .map(|id| json!({ "id": id }))
             .collect();
         if !ours.is_empty() {
-            self.child(auth, terminal_uuid, outlet, "remove_schedule_rules", Some(json!({ "remove_all": false, "rule_list": ours })))?;
+            self.child(terminal_uuid, outlet, "remove_schedule_rules", Some(json!({ "remove_all": false, "rule_list": ours })))?;
         }
         // The new ids are read back, not taken from add_schedule_rule's answer (undocumented).
-        let before = self.rule_ids(auth, terminal_uuid, outlet)?;
+        let before = self.rule_ids(terminal_uuid, outlet)?;
         let added = entry["want"]
             .as_array()
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .try_for_each(|rule| self.child(auth, terminal_uuid, outlet, "add_schedule_rule", Some(rule)).map(drop));
+            .try_for_each(|rule| self.child(terminal_uuid, outlet, "add_schedule_rule", Some(rule)).map(drop));
         // Read back after a failure too, so the next try removes what did get in.
-        let after = self.rule_ids(auth, terminal_uuid, outlet);
+        let after = self.rule_ids(terminal_uuid, outlet);
         if let Ok(after) = &after {
             entry["ids"] = json!(after.iter().filter(|id| !before.contains(id)).collect::<Vec<_>>());
         }
@@ -181,10 +185,10 @@ impl Host {
     }
 
     /// After a strip comes back: the schedules it missed while unreachable.
-    fn retry_schedules(&mut self, auth: &[u8; 32], terminal_uuid: &str) {
+    fn retry_schedules(&mut self, terminal_uuid: &str) {
         for outlet in self.outlets.clone() {
             if schedules_entry(&outlet)["synced"] == false {
-                match self.sync_schedules(auth, terminal_uuid, &outlet) {
+                match self.sync_schedules(terminal_uuid, &outlet) {
                     Ok(()) => log(LogLevel::Info, &format!("{outlet}: its schedules are on the strip now")),
                     Err(e) => log(LogLevel::Warn, &format!("{outlet}: schedules not on the strip: {e}")),
                 }
@@ -193,11 +197,11 @@ impl Host {
     }
 
     /// Reports every outlet; on failure the outlets go offline until the device answers again.
-    fn report(&mut self, auth: &[u8; 32], terminal_uuid: &str) {
+    fn report(&mut self, terminal_uuid: &str) {
         if !self.online && Instant::now() < self.retry_at {
             return;
         }
-        match self.outlets(auth, terminal_uuid) {
+        match self.outlets(terminal_uuid) {
             Ok(outlets) => {
                 let back = !self.online;
                 if back {
@@ -211,7 +215,7 @@ impl Host {
                     }
                 }
                 if back {
-                    self.retry_schedules(auth, terminal_uuid);
+                    self.retry_schedules(terminal_uuid);
                 }
             }
             Err(e) => {
@@ -339,65 +343,16 @@ impl Plugin for Tplink {
         Manifest { id: "tplink".into(), version: env!("CARGO_PKG_VERSION").into(), permissions: vec![LOCAL_NETWORK.into()] }
     }
 
-    fn init(settings: BTreeMap<String, String>) -> Result<(), String> {
-        let hosts = settings.get("hosts").ok_or("missing setting `hosts` (comma-separated IPs of the P300s)")?;
-        let hosts = hosts
-            .split(',')
-            .map(str::trim)
-            .filter(|h| !h.is_empty())
-            .map(|h| Ok(Host { addr: parse_host(h)?, session: None, outlets: vec![], online: false, retry_at: Instant::now() }))
-            .collect::<Result<Vec<_>, String>>()?;
-        let username = secret("username").ok_or("missing secret `username` in [tplink] of secrets.toml")?;
-        let password = secret("password").ok_or("missing secret `password` in [tplink] of secrets.toml")?;
+    fn init(_: BTreeMap<String, String>) -> Result<(), String> {
         let mut terminal = [0; 16];
         getrandom::fill(&mut terminal).map_err(|e| format!("random terminal id: {e}"))?;
-        *STATE.lock().unwrap() = Some(State {
-            auth: klap::auth_hash(&username, &password),
-            terminal_uuid: BASE64.encode(terminal),
-            hosts,
-            fast_until: Instant::now(),
-        });
+        *STATE.lock().unwrap() = Some(State { terminal_uuid: BASE64.encode(terminal), hosts: vec![], fast_until: Instant::now() });
         Ok(())
     }
 
+    /// Every outlet comes with its strip (`add_device`).
     fn discover() -> Result<Vec<DiscoveredEntity>, String> {
-        with_state(|state| {
-            let mut entities = Vec::new();
-            let mut failed = 0;
-            for host in &mut state.hosts {
-                let cache_key = format!("children:{}", host.addr);
-                let live = host.call(&state.auth, &state.terminal_uuid, "get_device_info", None).and_then(|info| {
-                    let device = info["device_id"].as_str().unwrap_or_default().to_string();
-                    Ok((device, host.outlets(&state.auth, &state.terminal_uuid)?))
-                });
-                let (device, outlets): (String, Vec<(String, String)>) = match live {
-                    Ok((device, outlets)) => {
-                        let outlets: Vec<_> = outlets.into_iter().map(|o| (o.id, o.name)).collect();
-                        kv_set(&cache_key, &json!({ "device": device, "outlets": outlets }).to_string());
-                        (device, outlets)
-                    }
-                    // Device off at startup: expose its last known outlets, they go online when it answers.
-                    Err(e) => {
-                        // One strip unplugged must not hide the others.
-                        let Some(cached) = kv_get(&cache_key).and_then(|c| serde_json::from_str::<Value>(&c).ok()) else {
-                            log(LogLevel::Error, &format!("{e}, and no cached outlets: they show up at the next start once it answers"));
-                            failed += 1;
-                            continue;
-                        };
-                        log(LogLevel::Warn, &format!("{e}; using cached outlets"));
-                        let outlets = serde_json::from_value(cached["outlets"].clone()).map_err(|e| e.to_string())?;
-                        (cached["device"].as_str().unwrap_or_default().to_string(), outlets)
-                    }
-                };
-                host.outlets = outlets.iter().map(|(id, _)| id.clone()).collect();
-                entities.extend(outlets.into_iter().map(|(id, name)| entity(id, name, device.clone())));
-            }
-            // None answered: fail, so the host restarts the plugin (and retries) with backoff.
-            if failed > 0 && failed == state.hosts.len() {
-                return Err("no P300 answered, and none has cached outlets".into());
-            }
-            Ok(entities)
-        })
+        Ok(vec![])
     }
 
     fn apply(local_id: &str, kind: CapKind, value: CapValue) -> Result<(), String> {
@@ -405,7 +360,7 @@ impl Plugin for Tplink {
             return Err(format!("unsupported capability {kind}"));
         };
         with_state(|state| {
-            let State { auth, terminal_uuid, hosts, fast_until } = state;
+            let State { terminal_uuid, hosts, fast_until } = state;
             let host = hosts
                 .iter_mut()
                 .find(|h| h.outlets.iter().any(|o| o == local_id))
@@ -414,7 +369,7 @@ impl Plugin for Tplink {
                 "device_id": local_id,
                 "requestData": { "method": "set_device_info", "params": { "device_on": on } },
             });
-            let result = host.call(auth, terminal_uuid, "control_child", Some(params))?;
+            let result = host.call(terminal_uuid, "control_child", Some(params))?;
             check(&result["responseData"], "control_child")?;
             // Confirmed by the refresh the host calls next, from the device's own state.
             *fast_until = Instant::now() + FAST_WINDOW;
@@ -425,11 +380,47 @@ impl Plugin for Tplink {
     fn refresh() -> u32 {
         with_state(|state| {
             for host in &mut state.hosts {
-                host.report(&state.auth, &state.terminal_uuid);
+                host.report(&state.terminal_uuid);
             }
             Ok(if Instant::now() < state.fast_until { FAST_REFRESH_MS } else { SLOW_REFRESH_MS })
         })
         .unwrap_or(SLOW_REFRESH_MS)
+    }
+}
+
+impl Devices for Tplink {
+    /// A strip, by its address and the TP-Link login. Its outlets are kept in the KV store
+    /// (`children:<id>`): a strip that does not answer at start still shows them, offline until
+    /// it answers. One never reached is refused.
+    fn add_device(id: &str, settings: BTreeMap<String, String>) -> Result<Vec<DiscoveredEntity>, String> {
+        let setting = |key: &str| settings.get(key).map(|v| v.trim()).filter(|v| !v.is_empty()).ok_or(format!("missing `{key}`"));
+        let addr = parse_host(setting("host")?)?;
+        let auth = klap::auth_hash(setting("username")?, setting("password")?);
+        with_state(|state| {
+            let mut host = Host { id: id.into(), addr, auth, session: None, outlets: vec![], online: false, retry_at: Instant::now() };
+            let cache_key = format!("children:{id}");
+            let live = host.call(&state.terminal_uuid, "get_device_info", None).and_then(|info| {
+                let device = info["device_id"].as_str().unwrap_or_default().to_string();
+                Ok((device, host.outlets(&state.terminal_uuid)?))
+            });
+            let (device, outlets): (String, Vec<(String, String)>) = match live {
+                Ok((device, outlets)) => {
+                    let outlets: Vec<_> = outlets.into_iter().map(|o| (o.id, o.name)).collect();
+                    kv_set(&cache_key, &json!({ "device": device, "outlets": outlets }).to_string());
+                    (device, outlets)
+                }
+                Err(e) => {
+                    let cached = kv_get(&cache_key).and_then(|c| serde_json::from_str::<Value>(&c).ok()).ok_or(e.clone())?;
+                    log(LogLevel::Warn, &format!("{e}; its last known outlets stand in until it answers"));
+                    let outlets = serde_json::from_value(cached["outlets"].clone()).map_err(|e| e.to_string())?;
+                    (cached["device"].as_str().unwrap_or_default().to_string(), outlets)
+                }
+            };
+            host.outlets = outlets.iter().map(|(id, _)| id.clone()).collect();
+            state.hosts.retain(|h| h.id != id);
+            state.hosts.push(host);
+            Ok(outlets.into_iter().map(|(id, name)| entity(id, name, device.clone())).collect())
+        })
     }
 }
 
@@ -447,7 +438,7 @@ impl Schedules for Tplink {
     fn set_schedules(local_id: &str, schedules: Vec<Schedule>) -> Result<(), String> {
         let want = json!(schedules.iter().map(rule).collect::<Result<Vec<_>, _>>()?);
         with_state(|state| {
-            let State { auth, terminal_uuid, hosts, .. } = state;
+            let State { terminal_uuid, hosts, .. } = state;
             let host = hosts
                 .iter_mut()
                 .find(|h| h.outlets.iter().any(|o| o == local_id))
@@ -459,12 +450,12 @@ impl Schedules for Tplink {
                 kv_set(&schedules_key(local_id), &entry.to_string());
             }
             // Ok only once the strip holds them: the app then says they run without the hub.
-            host.sync_schedules(auth, terminal_uuid, local_id).map_err(|e| format!("{e} (tried again when the strip answers)"))
+            host.sync_schedules(terminal_uuid, local_id).map_err(|e| format!("{e} (tried again when the strip answers)"))
         })
     }
 }
 
-homemaid_plugin::export_with_schedules!(Tplink with_types_in homemaid_plugin::bindings_schedules);
+homemaid_plugin::export_with_devices!(Tplink with_types_in homemaid_plugin::bindings_devices);
 
 #[cfg(test)]
 mod tests {

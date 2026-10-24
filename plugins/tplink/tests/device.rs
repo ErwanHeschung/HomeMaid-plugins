@@ -3,7 +3,7 @@
 mod common;
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     net::SocketAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -161,22 +161,33 @@ async fn fake_p300() -> (Shared, SocketAddr) {
     (device, addr)
 }
 
-fn tplink<'a>(hosts: &'a str, password: &'a str) -> Plugin<'a> {
+/// The plugin with strips the user added, each by its address.
+fn tplink(hosts: &[String], password: &str) -> Plugin<'static> {
+    let devices: Vec<(&'static str, &'static [(&'static str, &'static str)])> = hosts
+        .iter()
+        .enumerate()
+        .map(|(i, host)| {
+            let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+            let settings: &'static [(&str, &str)] =
+                Box::leak(Box::new([("host", leak(host.clone())), ("username", USER), ("password", leak(password.into()))]));
+            (leak(format!("strip{i}")), settings)
+        })
+        .collect();
     Plugin {
         id: "tplink",
         package: "tplink-plugin",
         // The fake P300 listens on loopback.
         permissions: &["local-network", "loopback"],
-        settings: Box::leak(Box::new([("hosts", hosts)])),
-        secrets: Box::leak(Box::new([("username", USER), ("password", password)])),
+        settings: &[],
+        secrets: &[],
+        devices: Box::leak(devices.into_boxed_slice()),
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn outlets_are_discovered_and_controlled() {
     let (device, addr) = fake_p300().await;
-    let hosts = addr.to_string();
-    let (core, _data) = start(tplink(&hosts, PASSWORD));
+    let (core, _data) = start(tplink(&[addr.to_string()], PASSWORD));
     let outlet = |i: usize| entity_uuid("tplink", OUTLETS[i].0);
     let slot = |i: usize| core.with(|r| r.entities[&outlet(i)].caps[&CapKind::OnOff].clone());
 
@@ -187,6 +198,7 @@ async fn outlets_are_discovered_and_controlled() {
     let names: Vec<String> = (0..3).map(|i| core.with(|r| r.entities[&outlet(i)].name.clone())).collect();
     assert_eq!(names, ["Lampe", "Radiateur", "P300 prise 3"]);
     assert_eq!(core.with(|r| r.entities[&outlet(0)].device.clone()).as_deref(), Some("P300DEV"));
+    assert_eq!(core.with(|r| r.entities[&outlet(0)].added.clone()).as_deref(), Some("strip0"), "the strip it came with");
 
     core.with(|r| r.set_desired(outlet(1), &CapKind::OnOff, CapValue::OnOff(true), Instant::now())).unwrap();
     wait_for("confirmation", Duration::from_secs(5), || slot(1).status == CommandStatus::Confirmed).await;
@@ -205,13 +217,31 @@ async fn outlets_are_discovered_and_controlled() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn wrong_password_is_refused() {
+async fn a_strip_is_added_live_and_a_wrong_password_refused() {
     let (device, addr) = fake_p300().await;
-    let hosts = addr.to_string();
-    let (core, _data) = start(tplink(&hosts, "bad"));
-    wait_for("handshake attempt", Duration::from_secs(10), || device.lock().unwrap().handshake1 > 0).await;
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    let (core, _data) = start(tplink(&[], PASSWORD));
+    let plugins = core.plugins.get().unwrap();
+    let started = || plugins.states()["tplink"].version.is_some();
+    wait_for("the plugin, with no strip", Duration::from_secs(10), started).await;
+    let form = |password: &str| BTreeMap::from([("host", addr.to_string()), ("username", USER.into()), ("password", password.into())].map(|(k, v)| (k.to_string(), v)));
+
+    let refused = plugins.add_device("tplink", "strip0", form("bad")).await.unwrap_err();
+    assert!(refused.contains("refused the login"), "said in the form: {refused}");
     assert_eq!(device.lock().unwrap().handshake2, 0, "the client stops at the handshake1 hash check");
+    assert!(core.with(|r| r.entities.is_empty()));
+
+    plugins.add_device("tplink", "strip0", form(PASSWORD)).await.unwrap();
+    assert_eq!(core.with(|r| r.entities.values().filter(|e| e.added.as_deref() == Some("strip0")).count()), 3, "its outlets at once");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_strip_refused_at_start_is_said_and_the_plugin_runs() {
+    let (_device, addr) = fake_p300().await;
+    let (core, _data) = start(tplink(&[addr.to_string()], "bad"));
+    let plugins = core.plugins.get().unwrap();
+    wait_for("the plugin", Duration::from_secs(10), || plugins.states()["tplink"].version.is_some()).await;
+    let error = plugins.states()["tplink"].devices.get("strip0").cloned().unwrap_or_default();
+    assert!(error.contains("refused the login"), "{error}");
     assert!(core.with(|r| r.entities.is_empty()));
 }
 
@@ -219,7 +249,7 @@ async fn wrong_password_is_refused() {
 async fn silent_device_does_not_hang_the_plugin() {
     // Accepts connections and never answers.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let hosts = listener.local_addr().unwrap().to_string();
+    let hosts = [listener.local_addr().unwrap().to_string()];
     let accepted = Arc::new(Mutex::new(Vec::new()));
     let held = accepted.clone();
     std::thread::spawn(move || {
@@ -227,17 +257,19 @@ async fn silent_device_does_not_hang_the_plugin() {
             held.lock().unwrap().push(stream.unwrap());
         }
     });
-    let (_core, _data) = start(tplink(&hosts, PASSWORD));
-    // Read timeout (5 s), discover fails, restart after 1 s, connects again.
-    wait_for("a second connection", Duration::from_secs(15), || accepted.lock().unwrap().len() >= 2).await;
+    let (core, _data) = start(tplink(&hosts, PASSWORD));
+    // Read timeout (5 s): the strip is left out, and the plugin runs.
+    let plugins = core.plugins.get().unwrap();
+    wait_for("the plugin, without the strip", Duration::from_secs(15), || plugins.states()["tplink"].version.is_some()).await;
+    assert!(plugins.states()["tplink"].devices.contains_key("strip0"));
+    assert!(!accepted.lock().unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unplugged_strip_does_not_hide_the_others() {
     let (_device, addr) = fake_p300().await;
     let unplugged = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
-    let hosts = format!("{unplugged},{addr}");
-    let (core, _data) = start(tplink(&hosts, PASSWORD));
+    let (core, _data) = start(tplink(&[unplugged.to_string(), addr.to_string()], PASSWORD));
     wait_for("discovery of the strip that answers", Duration::from_secs(10), || {
         core.with(|r| r.entities.len() == 3 && r.entities.values().all(|e| e.available))
     })
@@ -267,8 +299,7 @@ async fn schedules_become_rules_on_the_strip_next_to_the_users() {
     "#).unwrap();
     let paris = homemaid::automations::Location { latitude: 48.86, longitude: 2.35 };
     let automations = homemaid::automations::Automations::new(&file.automation, Some(paris)).unwrap();
-    let hosts = addr.to_string();
-    let (core, data) = start_with(tplink(&hosts, PASSWORD), automations);
+    let (core, data) = start_with(tplink(&[addr.to_string()], PASSWORD), automations);
     // As if the plugin had added "OLD" before; written while the plugin still compiles (seconds).
     let kv = data.0.join("plugins/tplink.kv.json");
     std::fs::write(&kv, json!({ "schedules:CHILD1": json!({ "want": [], "ids": ["OLD"], "synced": false }).to_string() }).to_string()).unwrap();

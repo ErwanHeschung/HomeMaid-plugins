@@ -22,9 +22,9 @@ Signed WebAssembly components, installed, updated and removed from your phone.
 
 ## Plugins
 
-| Plugin | Devices | May | Settings asked at install |
+| Plugin | Devices | May | Asked for each device |
 |---|---|---|---|
-| [`tplink`](plugins/tplink) | TP-Link Tapo P300 power strip: one entity per outlet, local KLAP v2, its schedules kept by the strip itself | talk to devices on your home network | IP addresses, TP-Link account e-mail and password |
+| [`tplink`](plugins/tplink) | TP-Link Tapo P300 power strip: one entity per outlet, local KLAP v2, its schedules kept by the strip itself | talk to devices on your home network | Its IP address, the TP-Link account's e-mail and password (a second strip reuses them) |
 
 > [!TIP]
 > **TP-Link Tapo**: turn on *Third-Party Compatibility* in the Tapo app first (*Me → Third-Party
@@ -33,9 +33,13 @@ Signed WebAssembly components, installed, updated and removed from your phone.
 ## Install a plugin
 
 In the HomeMaid app: **Settings → Plugins**, then under *Available*, *Install*. The app shows what
-the plugin may do and asks its settings; the hub downloads it, checks it and starts it at once,
-without restarting. Updates appear in the same list (*Update to 0.2.0*), and keep your settings
-and devices.
+the plugin may do and asks its settings, if it has any; the hub downloads it, checks it and starts
+it at once, without restarting. Updates appear in the same list (*Update to 0.2.0*), and keep your
+settings and devices.
+
+Then add your devices: **Home → +**, the plugin, and its form (a strip's address and login). The
+plugin checks it right away: a wrong password is said in the form. Each device is removed from its
+own panel.
 
 The hub reads [`index.json`](index.json) only then: it never needs the Internet to run.
 
@@ -102,14 +106,15 @@ release):
   "description": "What it brings to the home, in one line.",
   "repo": "https://github.com/you/my-plugin",
   "key": "RWQ...",
-  "settings": [
-    { "key": "hosts", "label": "IP addresses (comma-separated)", "required": true },
+  "settings": [],
+  "device_settings": [
+    { "key": "host", "label": "IP address", "required": true },
     { "key": "password", "label": "Device password", "secret": true, "required": true }
   ],
   "versions": [
     {
       "version": "0.1.0",
-      "api": "1.2",
+      "api": "1.3",
       "permissions": ["local-network"],
       "url": "https://github.com/you/my-plugin/releases/download/v0.1.0/my_plugin.wasm",
       "sha256": "…",
@@ -123,8 +128,9 @@ release):
 |---|---|
 | `id` | The id in your plugin's manifest |
 | `key` | Your minisign public key (the second line of `minisign.pub`) |
-| `settings` | Asked in the app at install. Secrets go to the hub's `secrets.toml` and are never shown again (read them with `secret()`); the others to `[plugin.settings]` (read them in `init`) |
-| `api` | The plugin-api your SDK builds for (`API_VERSION`, `1.2.0` → `1.2`): older hubs do not offer it |
+| `settings` | Asked in the app at install, for the whole plugin. Secrets go to the hub's `secrets.toml` and are never shown again (read them with `secret()`); the others to `[plugin.settings]` (read them in `init`) |
+| `device_settings` | Asked for each device the user adds (plugin-api 1.3, the `Devices` trait): your `add_device` gets them, secrets included, at each start and when one is added. Most plugins need these rather than `settings` |
+| `api` | The plugin-api your SDK builds for (`API_VERSION`, `1.3.0` → `1.3`): older hubs do not offer it |
 | `permissions` | Must match your manifest: the user accepts them at install |
 
 CI downloads each `.wasm` and checks its `sha256` and its signature with `key`

@@ -74,6 +74,9 @@ for entry, crate, version, tag in pending:
         index['plugins'].append(entry)
     else:
         mine.update({k: entry[k] for k in ('name', 'description', 'repo', 'settings')})
+        mine['device_settings'] = entry.get('device_settings', [])
+        if not mine['device_settings']:
+            del mine['device_settings']
         mine['versions'] += entry['versions']
 
 if pending and not DRY:

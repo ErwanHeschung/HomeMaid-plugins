@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use homemaid::{Core, automations::Automations, config::PluginConfig, plugins::Plugins, reconciler::Reconciler};
+use homemaid::{Core, automations::Automations, config::{DeviceConfig, PluginConfig}, plugins::Plugins, reconciler::Reconciler};
 use tokio::sync::mpsc;
 
 fn build_plugin(package: &str) -> PathBuf {
@@ -32,6 +32,8 @@ pub struct Plugin<'a> {
     pub permissions: &'a [&'a str],
     pub settings: &'a [(&'a str, &'a str)],
     pub secrets: &'a [(&'a str, &'a str)],
+    /// Devices added by the user (plugin-api 1.3): id, and settings secrets included.
+    pub devices: &'a [(&'a str, &'a [(&'a str, &'a str)])],
 }
 
 /// Runs the plugin on a fresh core. Keep the returned dir alive: it holds the plugin's KV store.
@@ -62,6 +64,7 @@ fn start_on(plugin: Plugin, path: PathBuf, automations: Option<Automations>) -> 
         settings: pairs(plugin.settings),
         version: None,
         key: None,
+        devices: plugin.devices.iter().map(|(id, settings)| DeviceConfig { id: id.to_string(), settings: pairs(settings) }).collect(),
     };
     let secrets = BTreeMap::from([(plugin.id.to_string(), pairs(plugin.secrets))]);
     let plugins = Arc::new(Plugins::start(core.clone(), vec![config], &data.0, secrets).unwrap());

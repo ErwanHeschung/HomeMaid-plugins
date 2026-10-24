@@ -39,7 +39,7 @@ def main():
         for field in ('name', 'key', 'versions'):
             if not p.get(field):
                 fail(f'{pid}: `{field}` is missing')
-        for s in p.get('settings', []):
+        for s in p.get('settings', []) + p.get('device_settings', []):
             if not s.get('key') or not s.get('label'):
                 fail(f'{pid}: every setting needs a `key` and a `label`')
         for v in p['versions']:
