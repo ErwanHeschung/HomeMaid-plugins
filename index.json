@@ -6,10 +6,34 @@
       "name": "TP-Link Tapo",
       "description": "Tapo P300 power strips, locally. Turn on \"Third-Party Compatibility\" in the Tapo app first (Me > Third-Party Services).",
       "repo": "https://github.com/ErwanHeschung/HomeMaid-plugins",
-      "settings": [
+      "settings": [],
+      "key": "RWSCnl7IrjgQOwGEjgaxJ1jIoiGjhM2FYxwwjOgALdHyD25/NJrKQoeo",
+      "versions": [
         {
-          "key": "hosts",
-          "label": "IP addresses of the strips (comma-separated)",
+          "version": "0.1.0",
+          "api": "1.2",
+          "permissions": [
+            "local-network"
+          ],
+          "url": "https://github.com/ErwanHeschung/HomeMaid-plugins/releases/download/tplink-v0.1.0/tplink_plugin.wasm",
+          "sha256": "4864e8494fda49e0e97b5089a30f5fd6d415e76421baa7c442ca2ad35cc39d10",
+          "signature": "untrusted comment: signature from minisign secret key\nRUSCnl7IrjgQO+O+wB7RgAZHls9WQ22QjDAfsEu8aKZMmyAt3Yx7ewkpq6cknv34q4DwvebgjN237hV9o9Ikw5rkVEf+73bBBgo=\ntrusted comment: tplink-v0.1.0 plugin-api 1.2\nmxv48bO/IfuXhtCNLmLbC1MBjfcYD5Z2f0SpFwzF2Z7EpQwWSww+uQRGkH5urrr8CcUO6lnGoovuxkupO86bCg==\n"
+        },
+        {
+          "version": "0.2.0",
+          "api": "1.3",
+          "permissions": [
+            "local-network"
+          ],
+          "url": "https://github.com/ErwanHeschung/HomeMaid-plugins/releases/download/tplink-v0.2.0/tplink_plugin.wasm",
+          "sha256": "1d10bb1af346466390df70192ce9ca5d03303b21443f86dbade739021f7f3dad",
+          "signature": "untrusted comment: signature from minisign secret key\nRUSCnl7IrjgQOx0M8J4Q5YKJq6C0jzHqNA89h4+YuBO3OpCdBMjvmGYXQq4j462L7zMzWWpb4XWOX8nAOwzRK1ouCfEfr6ydYwM=\ntrusted comment: tplink-v0.2.0 plugin-api 1.3\nN7dYLSCyQUyFk3MZFjVOKKVoDCtJzAvEF1B4o8z8fmf/c2WYY5B9RgWUOhCQsyNJf9Nqw07CfLUASblypgozCg==\n"
+        }
+      ],
+      "device_settings": [
+        {
+          "key": "host",
+          "label": "IP address of the strip",
           "required": true
         },
         {
@@ -23,19 +47,6 @@
           "label": "TP-Link account password",
           "secret": true,
           "required": true
-        }
-      ],
-      "key": "RWSCnl7IrjgQOwGEjgaxJ1jIoiGjhM2FYxwwjOgALdHyD25/NJrKQoeo",
-      "versions": [
-        {
-          "version": "0.1.0",
-          "api": "1.2",
-          "permissions": [
-            "local-network"
-          ],
-          "url": "https://github.com/ErwanHeschung/HomeMaid-plugins/releases/download/tplink-v0.1.0/tplink_plugin.wasm",
-          "sha256": "4864e8494fda49e0e97b5089a30f5fd6d415e76421baa7c442ca2ad35cc39d10",
-          "signature": "untrusted comment: signature from minisign secret key\nRUSCnl7IrjgQO+O+wB7RgAZHls9WQ22QjDAfsEu8aKZMmyAt3Yx7ewkpq6cknv34q4DwvebgjN237hV9o9Ikw5rkVEf+73bBBgo=\ntrusted comment: tplink-v0.1.0 plugin-api 1.2\nmxv48bO/IfuXhtCNLmLbC1MBjfcYD5Z2f0SpFwzF2Z7EpQwWSww+uQRGkH5urrr8CcUO6lnGoovuxkupO86bCg==\n"
         }
       ]
     }
