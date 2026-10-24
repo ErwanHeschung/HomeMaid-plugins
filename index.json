@@ -1,43 +1,4 @@
 {
   "format": 1,
-  "plugins": [
-    {
-      "id": "tplink",
-      "name": "TP-Link Tapo",
-      "description": "Tapo P300 power strips, locally. Turn on \"Third-Party Compatibility\" in the Tapo app first (Me > Third-Party Services).",
-      "repo": "https://github.com/ErwanHeschung/HomeMaid-plugins",
-      "settings": [
-        {
-          "key": "hosts",
-          "label": "IP addresses of the strips (comma-separated)",
-          "required": true
-        },
-        {
-          "key": "username",
-          "label": "TP-Link account e-mail",
-          "secret": true,
-          "required": true
-        },
-        {
-          "key": "password",
-          "label": "TP-Link account password",
-          "secret": true,
-          "required": true
-        }
-      ],
-      "key": "RWSCnl7IrjgQOwGEjgaxJ1jIoiGjhM2FYxwwjOgALdHyD25/NJrKQoeo",
-      "versions": [
-        {
-          "version": "0.1.0",
-          "api": "1.2",
-          "permissions": [
-            "local-network"
-          ],
-          "url": "https://github.com/ErwanHeschung/HomeMaid/releases/download/tplink-v0.1.0/tplink_plugin.wasm",
-          "sha256": "7a6f53f30626d2099be61f4d99f3a9b24f0938f9933909dca271d54f0237622e",
-          "signature": "untrusted comment: signature from minisign secret key\nRUSCnl7IrjgQOwqNRUenGyk9rFwEBxIjF4ucKJXPFkWx1kZRM2z1T8cKvKrs2uXzVm+7Xc0I8guHoUbzXxrMSLafuYuHX6pOuAg=\ntrusted comment: tplink-v0.1.0 plugin-api 1.2\nqdKfqNj3ulWhL5T9/yCukphivLZ3sOTydNXT5QlSuV9WYTJhtB6LbLO95Mtzt71kwaxKINo2d+iRY7yqHEMFAA==\n"
-        }
-      ]
-    }
-  ]
+  "plugins": []
 }
